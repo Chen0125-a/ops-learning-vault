@@ -1,4 +1,4 @@
 interface:
   display_name: "长期学习教练"
   short_description: "为多月学习提供规划、复盘、知识沉淀、备份与跨设备迁移支持"
-  default_prompt: "使用 $long-cycle-learning-coach 复盘我的学习周期并更新可迁移的学习记录。"
+  default_prompt: "$long-cycle-learning-coach：我这周学得有点乱，帮我看看下一步怎么走。"

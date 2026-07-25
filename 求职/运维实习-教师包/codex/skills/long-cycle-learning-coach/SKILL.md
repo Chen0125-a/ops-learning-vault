@@ -1,11 +1,15 @@
 ---
 name: long-cycle-learning-coach
-description: Manage multi-week or multi-month learning with evidence-based records, periodic review, durable backup, and machine/account migration. Use when the user asks to plan, review, resume, preserve, sync, or migrate an ongoing learning system, including Obsidian and GitHub learning records. Complement specialized teaching skills such as yunwei-teacher; do not replace their subject-level teaching workflow.
+description: Help the user sustain a multi-week or multi-month learning journey with evidence-based records, review, durable backup, and migration. Use whenever the user naturally talks about their study progress, weekly review, next step, interrupted learning, rearranging a plan, saving notes, or moving to a new device/account; never require a memorized command. Complement specialized teaching skills such as yunwei-teacher rather than replacing subject-level teaching.
 ---
 
 # 长周期学习教练
 
 把学习做成可持续、可验证、可迁移的系统，而不是依赖聊天记忆。
+
+## 自然进入，不背口令
+
+从用户的意图进入这个模式，不要求固定说法。像“这周学得怎么样”“上次学到哪了”“我最近断了几天”“帮我重新安排一下”“这些笔记怎么保存”都属于长期学习管理。只有用户明确要做当天的学科训练时，才交给对应的专业教学技能。
 
 ## 先判断任务
 
