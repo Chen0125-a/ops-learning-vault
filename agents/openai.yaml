@@ -1,0 +1,4 @@
+interface:
+  display_name: "Obsidian User Memory"
+  short_description: "Restore and maintain portable Obsidian memory"
+  default_prompt: "Use $obsidian-user-memory to load and maintain my portable Obsidian collaboration memory."
