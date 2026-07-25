@@ -15,6 +15,10 @@
 !/运维实习-错题本/
 !/运维实习-错题本/**
 
+!/AGENTS.md
+!/AI协作-通用记忆包/
+!/AI协作-通用记忆包/**
+
 # Hard safety exclusions, even within the whitelisted directories.
 **/.env
 **/.env.*
