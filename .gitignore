@@ -1,0 +1,34 @@
+# This repository is intentionally a teaching-material whitelist.
+# Everything is ignored unless explicitly re-included below.
+/*
+!/.gitignore
+
+!/求职/
+/求职/*
+!/求职/运维实习三个月学习计划.md
+!/求职/学情档案.md
+!/求职/每日一问/
+!/求职/每日一问/**
+!/求职/运维实习-教师包/
+!/求职/运维实习-教师包/**
+
+!/运维实习-错题本/
+!/运维实习-错题本/**
+
+# Hard safety exclusions, even within the whitelisted directories.
+**/.env
+**/.env.*
+**/auth.json
+**/*token*
+**/*secret*
+**/*credential*
+**/*.pem
+**/*.key
+**/*.pfx
+**/*.p12
+**/*.kdbx
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+Thumbs.db
+Desktop.ini
