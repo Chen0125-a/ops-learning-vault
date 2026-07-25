@@ -28,6 +28,9 @@
 !/工具/Claude-Code个人配置完整手册.md
 !/AI协作-通用记忆包/
 !/AI协作-通用记忆包/**
+!/90-归档/
+/90-归档/*
+!/90-归档/README.md
 
 # Hard safety exclusions, even within the whitelisted directories.
 **/.env
