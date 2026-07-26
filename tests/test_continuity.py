@@ -732,6 +732,26 @@ class ContinuityTests(unittest.TestCase):
             self.assertFalse(second_report["changed"])
             self.assertEqual(second, first)
 
+    def test_explicit_source_lifecycle_metadata_overrides_cached_index_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = create_vault(Path(tmp))
+            package = seed_lifecycle_memory(vault)
+            enable_lifecycle_v4(vault)
+            self.mod.build_memory_index(vault, apply=True)
+            profile = package / "COLLABORATION_MEMORY.md"
+            updated = profile.read_text(encoding="utf-8").replace(
+                "- 来源证据：一次临时请求。",
+                "- 来源证据：三次独立请求。\n- 证据数：3\n- 复核日期：2026-10-01",
+            )
+            write(profile, updated)
+
+            self.mod.build_memory_index(vault, apply=True)
+            index = json.loads((package / "MEMORY_INDEX.json").read_text(encoding="utf-8"))
+            item = next(entry for entry in index["entries"] if entry["id"] == "UI-002")
+
+            self.assertEqual(item["evidence_count"], 3)
+            self.assertEqual(item["review_after"], "2026-10-01")
+
     def test_index_fingerprint_detects_source_drift_and_verify_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             vault = create_vault(Path(tmp))
