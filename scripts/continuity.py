@@ -99,7 +99,7 @@ PORTABLE_RULE_BLOCK = """{begin}
 ## Portable collaboration continuity
 
 - Treat the Obsidian `AI协作-通用记忆包` as the canonical, cross-agent memory ledger. Treat any agent-native memory as a local mirror/cache, never as an equal authority.
-- At the start of ordinary work that needs durable user context, invoke `obsidian-user-memory`, verify `MEMORY_INDEX.json` fingerprints, then load `CURRENT.md`, active hot entries, and task-relevant warm entries within the context budget. Use a full canonical read for migration, restore, audit, conflict resolution, durable writes, or any stale/missing index.
+- At the start of ordinary work that needs durable user context, invoke `obsidian-user-memory`, discover the vault, verify `MEMORY_INDEX.json` fingerprints, then load `CURRENT.md`, active hot entries, and task-relevant warm entries within the context budget. Use a full canonical read for migration, restore, audit, conflict resolution, durable writes, or any stale/missing index.
 - Before every final reply, audit only durable deltas. For a real durable change, perform a full canonical read, write the narrow source entry, append `MEMORY_CHANGELOG.md`, atomically rebuild `MEMORY_INDEX.json`, run the health check, then mirror a compact summary with stable IDs through a verified native-memory file or API adapter.
 - Exclude superseded, archived, and review-due entries from routine context. Treat candidates as hypotheses, require at least two independent evidence points before promoting a user impression, and never delete expired memory automatically.
 - Resolve conflicts by this order: current primary evidence or explicit user correction; validated Obsidian entry; agent-local memory; unverified candidate. Never silently overwrite unresolved conflicts.
