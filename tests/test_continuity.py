@@ -718,6 +718,20 @@ class ContinuityTests(unittest.TestCase):
             self.assertEqual(by_id["UP-002"]["tier"], "archive")
             self.assertIn("CURRENT.md", index["source_fingerprints"])
 
+    def test_rebuilding_unchanged_index_is_a_no_op(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = create_vault(Path(tmp))
+            package = seed_lifecycle_memory(vault)
+            enable_lifecycle_v4(vault)
+            self.mod.build_memory_index(vault, apply=True)
+            first = (package / "MEMORY_INDEX.json").read_text(encoding="utf-8")
+
+            second_report = self.mod.build_memory_index(vault, apply=True)
+            second = (package / "MEMORY_INDEX.json").read_text(encoding="utf-8")
+
+            self.assertFalse(second_report["changed"])
+            self.assertEqual(second, first)
+
     def test_index_fingerprint_detects_source_drift_and_verify_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             vault = create_vault(Path(tmp))
