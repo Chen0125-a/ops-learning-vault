@@ -14,7 +14,7 @@ import re
 import shutil
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -22,6 +22,7 @@ MEMORY_DIR_NAME = "AI协作-通用记忆包"
 PORTABILITY_MANIFEST = "PORTABILITY_MANIFEST.json"
 AGENT_MEMORY_REGISTRY = "AGENT_MEMORY_REGISTRY.json"
 PORTABLE_MEMORY_POLICY = "PORTABLE_MEMORY_POLICY.md"
+MEMORY_INDEX = "MEMORY_INDEX.json"
 POLICY_BEGIN = "<!-- OBSIDIAN-CONTINUITY:BEGIN -->"
 POLICY_END = "<!-- OBSIDIAN-CONTINUITY:END -->"
 CORE_MEMORY_FILES = (
@@ -75,13 +76,32 @@ DUAL_MEMORY_STATUSES = {
     "degraded-unverified-rules-autoload",
 }
 NATIVE_MEMORY_MODES = {"file-mirror", "api-adapter", "unavailable-or-unverified"}
+INDEX_SOURCE_FILES = (
+    "CURRENT.md",
+    "USER_PROFILE.md",
+    "COLLABORATION_MEMORY.md",
+    "DECISIONS.md",
+    "LESSONS.md",
+    "ENVIRONMENT.md",
+    "MEMORY_INBOX.md",
+)
+ENTRY_SOURCE_FILES = INDEX_SOURCE_FILES[1:]
+ENTRY_HEADING_RE = re.compile(
+    r"(?m)^#{2,4}\s+([A-Z]{1,4}-\d{3,}|MI-\d{8}-\d{3})[：:]\s*(.+?)\s*$"
+)
+FRONTMATTER_REVIEWED_RE = re.compile(r"(?m)^reviewed:\s*(\d{4}-\d{2}-\d{2})\s*$")
+VALID_ENTRY_STATUSES = {"active", "candidate", "review-due", "superseded", "archived"}
+VALID_MEMORY_TIERS = {"hot", "warm", "cold", "archive"}
+DEFAULT_HOT_BUDGET_CHARS = 12000
+CURRENT_STALE_DAYS = 14
 
 PORTABLE_RULE_BLOCK = """{begin}
 ## Portable collaboration continuity
 
 - Treat the Obsidian `AI协作-通用记忆包` as the canonical, cross-agent memory ledger. Treat any agent-native memory as a local mirror/cache, never as an equal authority.
-- At the start of work that needs durable user context, invoke `obsidian-user-memory`, discover the vault, read the six core memory files in their required order, and reconcile accessible local memory against them.
-- Before every final reply, audit only durable deltas. Write validated changes to Obsidian first, append `MEMORY_CHANGELOG.md`, then mirror a compact summary with stable IDs through a verified native-memory file or API adapter.
+- At the start of ordinary work that needs durable user context, invoke `obsidian-user-memory`, verify `MEMORY_INDEX.json` fingerprints, then load `CURRENT.md`, active hot entries, and task-relevant warm entries within the context budget. Use a full canonical read for migration, restore, audit, conflict resolution, durable writes, or any stale/missing index.
+- Before every final reply, audit only durable deltas. For a real durable change, perform a full canonical read, write the narrow source entry, append `MEMORY_CHANGELOG.md`, atomically rebuild `MEMORY_INDEX.json`, run the health check, then mirror a compact summary with stable IDs through a verified native-memory file or API adapter.
+- Exclude superseded, archived, and review-due entries from routine context. Treat candidates as hypotheses, require at least two independent evidence points before promoting a user impression, and never delete expired memory automatically.
 - Resolve conflicts by this order: current primary evidence or explicit user correction; validated Obsidian entry; agent-local memory; unverified candidate. Never silently overwrite unresolved conflicts.
 - Never store passwords, tokens, cookies, private keys, authentication files, full chats, hidden reasoning, or irrelevant private data. Routine memory updates never perform Git commit or push.
 - If no documented writable native-memory mechanism is available, continue from Obsidian and report `degraded-no-native-memory-file`; never claim that dual-memory sync succeeded.
@@ -166,8 +186,9 @@ def _load_manifest(package):
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ValidationError("Invalid portability manifest: {}".format(exc)) from exc
-    if data.get("schema_version") != 3:
-        raise ValidationError("Unsupported schema_version; expected 3")
+    schema_version = data.get("schema_version")
+    if schema_version not in {3, 4}:
+        raise ValidationError("Unsupported schema_version; expected 3 or 4")
     if data.get("memory_package") != Path(package).name:
         raise ValidationError("Manifest memory_package does not match the package directory")
     if not isinstance(data.get("context_paths"), list):
@@ -190,6 +211,18 @@ def _load_manifest(package):
                     field, json.dumps(expected, ensure_ascii=False)
                 )
             )
+    if schema_version == 4:
+        expected_lifecycle = {
+            "lifecycle_index": "{}/{}".format(Path(package).name, MEMORY_INDEX),
+            "runtime_loading": "selective-index",
+        }
+        for field, expected in expected_lifecycle.items():
+            if protocol.get(field) != expected:
+                raise ValidationError(
+                    "Manifest memory_protocol.{} must equal {}".format(
+                        field, json.dumps(expected, ensure_ascii=False)
+                    )
+                )
     return data
 
 
@@ -423,6 +456,476 @@ def _validate_managed_skill_sets(manifest):
     return errors, required
 
 
+def _today(value=None):
+    if value is None:
+        return datetime.now(timezone.utc).date()
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value))
+    except ValueError as exc:
+        raise ValidationError("Date must use YYYY-MM-DD: {}".format(value)) from exc
+
+
+def _date_or_none(value):
+    if value in (None, ""):
+        return None
+    try:
+        return date.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _frontmatter_reviewed(text):
+    match = FRONTMATTER_REVIEWED_RE.search(text)
+    return match.group(1) if match else None
+
+
+def _field_value(body, names):
+    joined = "|".join(re.escape(name) for name in names)
+    pattern = re.compile(
+        r"(?m)^\s*-\s*(?:\*\*)?(?:{})(?:\*\*)?\s*[：:]\s*(.+?)\s*$".format(joined)
+    )
+    match = pattern.search(body)
+    return match.group(1).strip() if match else None
+
+
+def _normalize_status(raw):
+    value = (raw or "active").strip().lower()
+    if any(word in value for word in ("superseded", "废弃", "替代", "失效")):
+        return "superseded"
+    if any(word in value for word in ("archived", "归档")):
+        return "archived"
+    if any(word in value for word in ("review-due", "待复核", "到期")):
+        return "review-due"
+    if any(word in value for word in ("candidate", "候选", "待验证")):
+        return "candidate"
+    return "active"
+
+
+def _default_tier(entry_id, status):
+    if status in {"superseded", "archived"}:
+        return "archive"
+    prefix = entry_id.split("-", 1)[0]
+    if prefix == "UP" and status == "active":
+        return "hot"
+    if prefix in {"MI"} or status == "candidate":
+        return "cold"
+    return "warm"
+
+
+def _review_days(entry_id, status):
+    if status in {"superseded", "archived"}:
+        return None
+    if status == "candidate":
+        return 30
+    prefix = entry_id.split("-", 1)[0]
+    if prefix == "UI":
+        return 60
+    if prefix == "E":
+        return 90
+    if prefix == "D":
+        return 365
+    return 180
+
+
+def _evidence_count(body):
+    explicit = _field_value(body, ("证据数", "evidence_count"))
+    if explicit and explicit.isdigit():
+        return int(explicit)
+    evidence_lines = re.findall(
+        r"(?mi)^\s*-\s*(?:\*\*)?(?:来源证据|依据|证据)(?:\*\*)?\s*[：:].+$",
+        body,
+    )
+    if not evidence_lines:
+        return 0
+    joined = " ".join(evidence_lines)
+    if re.search(r"(?:两次|多次|至少\s*2|\b[2-9]\s*次)", joined):
+        return 2
+    return len(evidence_lines)
+
+
+def _split_scope(raw):
+    if not raw:
+        return ["global"]
+    values = [item.strip() for item in re.split(r"[,，、;/；]", raw) if item.strip()]
+    return values or ["global"]
+
+
+def _entry_summary(body):
+    preferred = _field_value(
+        body,
+        ("内容", "结论", "决定", "正确结论", "环境", "观察", "经验", "规则"),
+    )
+    if preferred:
+        return preferred[:500]
+    for line in body.splitlines():
+        cleaned = re.sub(r"^\s*-\s*", "", line).strip()
+        if cleaned and not cleaned.startswith("#"):
+            return cleaned[:500]
+    return ""
+
+
+def _parse_memory_entries(package):
+    entries = []
+    for source_name in ENTRY_SOURCE_FILES:
+        path = Path(package) / source_name
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        reviewed = _frontmatter_reviewed(text)
+        matches = list(ENTRY_HEADING_RE.finditer(text))
+        for index, match in enumerate(matches):
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+            body = text[match.end():end]
+            entry_id = match.group(1)
+            status = _normalize_status(_field_value(body, ("状态", "status")))
+            last_confirmed = _field_value(
+                body, ("最后确认", "确认日期", "日期", "last_confirmed")
+            )
+            last_confirmed = (
+                last_confirmed if _date_or_none(last_confirmed) else reviewed
+            )
+            review_after = _field_value(body, ("复核日期", "review_after"))
+            if not _date_or_none(review_after):
+                days = _review_days(entry_id, status)
+                confirmed_date = _date_or_none(last_confirmed)
+                review_after = (
+                    (confirmed_date + timedelta(days=days)).isoformat()
+                    if days is not None and confirmed_date
+                    else None
+                )
+            scope = _split_scope(_field_value(body, ("适用范围", "范围", "scope")))
+            entries.append(
+                {
+                    "id": entry_id,
+                    "title": match.group(2).strip(),
+                    "source": source_name,
+                    "status": status,
+                    "tier": _default_tier(entry_id, status),
+                    "scope": scope,
+                    "load_when": list(scope),
+                    "last_confirmed": last_confirmed,
+                    "review_after": review_after,
+                    "evidence_count": _evidence_count(body),
+                    "summary": _entry_summary(body),
+                }
+            )
+    return entries
+
+
+def _load_memory_index(package):
+    path = Path(package) / MEMORY_INDEX
+    if not path.is_file():
+        raise ValidationError("Missing memory index: {}".format(path))
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValidationError("Invalid memory index: {}".format(exc)) from exc
+    if data.get("schema_version") != 1:
+        raise ValidationError("Unsupported memory index schema_version; expected 1")
+    if not isinstance(data.get("source_fingerprints"), dict):
+        raise ValidationError("Memory index source_fingerprints must be an object")
+    if not isinstance(data.get("entries"), list):
+        raise ValidationError("Memory index entries must be a list")
+    return data
+
+
+def build_memory_index(vault_or_package, apply=False, today=None):
+    """Build a deterministic source index while preserving reviewed lifecycle metadata."""
+    _, package = _vault_and_package(vault_or_package)
+    manifest = _load_manifest(package)
+    if manifest.get("schema_version") != 4:
+        raise ValidationError("build-index requires portability manifest schema_version 4")
+    missing_sources = [name for name in INDEX_SOURCE_FILES if not (package / name).is_file()]
+    if missing_sources:
+        raise ValidationError("Cannot build memory index; missing: {}".format(", ".join(missing_sources)))
+
+    previous = {}
+    old_index = None
+    index_path = package / MEMORY_INDEX
+    if index_path.is_file():
+        old_index = _load_memory_index(package)
+        previous = {
+            item.get("id"): item
+            for item in old_index.get("entries", [])
+            if isinstance(item, dict) and isinstance(item.get("id"), str)
+        }
+
+    preserved_fields = (
+        "tier",
+        "scope",
+        "load_when",
+        "last_confirmed",
+        "review_after",
+        "evidence_count",
+    )
+    entries = _parse_memory_entries(package)
+    for entry in entries:
+        old = previous.get(entry["id"], {})
+        for field in preserved_fields:
+            if field in old:
+                entry[field] = old[field]
+        if entry["status"] in {"superseded", "archived"}:
+            entry["tier"] = "archive"
+
+    duplicate_ids = sorted(
+        entry_id
+        for entry_id in {entry["id"] for entry in entries}
+        if sum(item["id"] == entry_id for item in entries) > 1
+    )
+    if duplicate_ids:
+        raise ValidationError("Duplicate stable memory IDs: {}".format(", ".join(duplicate_ids)))
+
+    body = {
+        "schema_version": 1,
+        "source_fingerprints": {
+            name: _sha256(package / name) for name in INDEX_SOURCE_FILES
+        },
+        "hot_budget_chars": DEFAULT_HOT_BUDGET_CHARS,
+        "policy": {
+            "current_stale_days": CURRENT_STALE_DAYS,
+            "routine_statuses": ["active"],
+            "excluded_statuses": ["review-due", "superseded", "archived"],
+            "automatic_delete": False,
+        },
+        "entries": sorted(entries, key=lambda item: (item["source"], item["id"])),
+    }
+    if old_index:
+        body["hot_budget_chars"] = old_index.get(
+            "hot_budget_chars", DEFAULT_HOT_BUDGET_CHARS
+        )
+    old_body = dict(old_index) if old_index else None
+    if old_body is not None:
+        old_body.pop("generated_at", None)
+    generated_at = (
+        old_index.get("generated_at")
+        if old_index and old_body == body and old_index.get("generated_at")
+        else datetime.now(timezone.utc).isoformat()
+    )
+    payload = dict(body)
+    payload["generated_at"] = generated_at
+    content = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    changed = not index_path.is_file() or index_path.read_text(encoding="utf-8") != content
+    if apply:
+        _atomic_write_text(index_path, content)
+    return {
+        "ok": True,
+        "apply": bool(apply),
+        "changed": changed,
+        "index": str(index_path),
+        "entry_count": len(entries),
+        "source_count": len(INDEX_SOURCE_FILES),
+    }
+
+
+def memory_health(vault_or_package, today=None):
+    """Audit lifecycle safety without modifying memory or deleting expired records."""
+    _, package = _vault_and_package(vault_or_package)
+    current_date = _today(today)
+    errors = []
+    warnings = []
+    stale_sources = []
+    review_due = []
+    candidate_overdue = []
+    impression_issues = []
+    duplicate_ids = []
+    try:
+        index = _load_memory_index(package)
+    except ValidationError as exc:
+        return {
+            "ok": False,
+            "index_fresh": False,
+            "stale_sources": [],
+            "review_due": [],
+            "candidate_overdue": [],
+            "impression_issues": [],
+            "duplicate_ids": [],
+            "hot_chars": 0,
+            "hot_budget_chars": DEFAULT_HOT_BUDGET_CHARS,
+            "oversized_hot_context": False,
+            "current_stale": True,
+            "errors": [str(exc)],
+            "warnings": [],
+        }
+
+    fingerprints = index["source_fingerprints"]
+    for source_name in INDEX_SOURCE_FILES:
+        path = package / source_name
+        expected = fingerprints.get(source_name)
+        if not path.is_file() or not expected or _sha256(path) != expected:
+            stale_sources.append(source_name)
+    if stale_sources:
+        errors.append("Memory index is stale for: {}".format(", ".join(stale_sources)))
+
+    seen = set()
+    hot_chars = 0
+    for position, entry in enumerate(index["entries"]):
+        if not isinstance(entry, dict):
+            errors.append("Memory index entry {} must be an object".format(position))
+            continue
+        entry_id = entry.get("id")
+        if not isinstance(entry_id, str) or not entry_id:
+            errors.append("Memory index entry {} has no stable ID".format(position))
+            continue
+        if entry_id in seen:
+            duplicate_ids.append(entry_id)
+        seen.add(entry_id)
+        status = entry.get("status")
+        tier = entry.get("tier")
+        if status not in VALID_ENTRY_STATUSES:
+            errors.append("{} has invalid status {}".format(entry_id, status))
+        if tier not in VALID_MEMORY_TIERS:
+            errors.append("{} has invalid tier {}".format(entry_id, tier))
+        due = _date_or_none(entry.get("review_after"))
+        if due and due < current_date and status not in {"superseded", "archived"}:
+            review_due.append(entry_id)
+            if status == "candidate":
+                candidate_overdue.append(entry_id)
+        if entry_id.startswith("UI-") and status == "active":
+            if (entry.get("evidence_count") or 0) < 2 or not due:
+                impression_issues.append(entry_id)
+        if tier == "hot" and status == "active" and entry_id not in review_due:
+            hot_chars += len(entry.get("title", "")) + len(entry.get("summary", ""))
+
+    if duplicate_ids:
+        duplicate_ids = sorted(set(duplicate_ids))
+        errors.append("Duplicate memory IDs: {}".format(", ".join(duplicate_ids)))
+    if review_due:
+        warnings.append("Review due: {}".format(", ".join(sorted(review_due))))
+    if candidate_overdue:
+        warnings.append("Candidate overdue: {}".format(", ".join(sorted(candidate_overdue))))
+    if impression_issues:
+        warnings.append(
+            "Active impressions need two evidence points and a review date: {}".format(
+                ", ".join(sorted(impression_issues))
+            )
+        )
+
+    current_text = (package / "CURRENT.md").read_text(encoding="utf-8")
+    current_reviewed = _date_or_none(_frontmatter_reviewed(current_text))
+    current_stale = (
+        current_reviewed is None
+        or (current_date - current_reviewed).days > CURRENT_STALE_DAYS
+    )
+    if current_stale:
+        warnings.append("CURRENT.md is stale or lacks a reviewed date")
+    hot_budget = index.get("hot_budget_chars", DEFAULT_HOT_BUDGET_CHARS)
+    if not isinstance(hot_budget, int) or hot_budget <= 0:
+        errors.append("hot_budget_chars must be a positive integer")
+        hot_budget = DEFAULT_HOT_BUDGET_CHARS
+    oversized = hot_chars > hot_budget
+    if oversized:
+        warnings.append("Hot memory exceeds context budget")
+    return {
+        "ok": not errors,
+        "index_fresh": not stale_sources,
+        "stale_sources": sorted(stale_sources),
+        "review_due": sorted(review_due),
+        "candidate_overdue": sorted(candidate_overdue),
+        "impression_issues": sorted(impression_issues),
+        "duplicate_ids": duplicate_ids,
+        "hot_chars": hot_chars,
+        "hot_budget_chars": hot_budget,
+        "oversized_hot_context": oversized,
+        "current_stale": current_stale,
+        "errors": errors,
+        "warnings": warnings,
+    }
+
+
+def _query_terms(query):
+    terms = set()
+    for token in re.findall(r"[A-Za-z0-9_-]{2,}|[\u3400-\u9fff]{2,}", query.lower()):
+        terms.add(token)
+        if re.fullmatch(r"[\u3400-\u9fff]+", token) and len(token) > 2:
+            for size in (2, 3, 4):
+                for start in range(0, len(token) - size + 1):
+                    terms.add(token[start:start + size])
+    return terms
+
+
+def _entry_relevance(entry, query_terms):
+    haystack = " ".join(
+        [
+            str(entry.get("title", "")),
+            str(entry.get("summary", "")),
+            " ".join(entry.get("scope", [])),
+            " ".join(entry.get("load_when", [])),
+        ]
+    ).lower()
+    return sum(len(term) for term in query_terms if term in haystack)
+
+
+def _minimum_relevance(query):
+    cjk_tokens = re.findall(r"[\u3400-\u9fff]+", query)
+    return 4 if len(cjk_tokens) == 1 and len(cjk_tokens[0]) >= 4 else 1
+
+
+def runtime_context(vault_or_package, query, max_chars=DEFAULT_HOT_BUDGET_CHARS, today=None):
+    """Return bounded current, hot, and query-relevant memory; fail on stale indexes."""
+    if not isinstance(query, str) or not query.strip():
+        raise ValidationError("runtime-context requires a non-empty query")
+    if not isinstance(max_chars, int) or max_chars < 500:
+        raise ValidationError("max_chars must be an integer of at least 500")
+    _, package = _vault_and_package(vault_or_package)
+    health = memory_health(package, today=today)
+    if not health["ok"] or not health["index_fresh"]:
+        raise ValidationError(
+            "Memory index is missing or stale; rebuild it after a full canonical read"
+        )
+    index = _load_memory_index(package)
+    due_ids = set(health["review_due"])
+    terms = _query_terms(query)
+    minimum_relevance = _minimum_relevance(query)
+    candidates = []
+    for entry in index["entries"]:
+        if entry.get("status") != "active" or entry.get("id") in due_ids:
+            continue
+        tier = entry.get("tier")
+        score = _entry_relevance(entry, terms)
+        if tier == "hot" or (tier == "warm" and score >= minimum_relevance):
+            candidates.append((0 if tier == "hot" else 1, -score, entry["id"], entry))
+    candidates.sort(key=lambda item: item[:3])
+
+    current = (package / "CURRENT.md").read_text(encoding="utf-8").strip()
+    prefix = "# Runtime continuity context\n\nQuery: {}\n".format(query.strip())
+    if health["current_stale"]:
+        prefix += "\nWarning: CURRENT.md is review-due; verify it before relying on it.\n"
+    prefix += "\n## CURRENT.md\n\n"
+    if len(prefix) + len(current) > max_chars:
+        remaining = max(0, max_chars - len(prefix) - 32)
+        current = current[:remaining] + "\n[CURRENT truncated]"
+    context = prefix + current
+    loaded_ids = []
+    skipped_budget = []
+    for _, _, entry_id, entry in candidates:
+        block = "\n\n## {}：{}\n\n- 来源：{}\n- 层级：{}\n- 摘要：{}".format(
+            entry_id,
+            entry.get("title", ""),
+            entry.get("source", ""),
+            entry.get("tier", ""),
+            entry.get("summary", ""),
+        )
+        if len(context) + len(block) > max_chars:
+            skipped_budget.append(entry_id)
+            continue
+        context += block
+        loaded_ids.append(entry_id)
+    return {
+        "ok": True,
+        "query": query.strip(),
+        "loaded_ids": loaded_ids,
+        "review_due_ids": health["review_due"],
+        "skipped_budget_ids": skipped_budget,
+        "current_stale": health["current_stale"],
+        "context_chars": len(context),
+        "max_chars": max_chars,
+        "context": context,
+        "warnings": health["warnings"],
+    }
+
+
 def verify_package(vault_or_package, skill_roots=None):
     vault_root, package = _vault_and_package(vault_or_package)
     missing_files = [
@@ -445,6 +948,12 @@ def verify_package(vault_or_package, skill_roots=None):
             errors.append(str(exc))
 
     if manifest:
+        if manifest.get("schema_version") == 4:
+            lifecycle = memory_health(package)
+            if not lifecycle["ok"]:
+                errors.extend(
+                    "Memory index: {}".format(error) for error in lifecycle["errors"]
+                )
         for item in manifest["context_paths"]:
             if not isinstance(item, dict) or not item.get("path"):
                 errors.append("Every context_paths item must contain path")
@@ -534,15 +1043,17 @@ account sessions, credentials, cookies, or hidden reasoning.
 1. Verify `checksums.sha256` before trusting any file.
 2. Read `vault/AI协作-通用记忆包/PORTABLE_MEMORY_POLICY.md`,
    `AGENT_MEMORY_REGISTRY.json`, and `PORTABILITY_MANIFEST.json`.
-3. Read the six core memory files in the order required by the bundled Skill.
+3. Validate `MEMORY_INDEX.json`; use bounded selective loading for ordinary work and a full canonical
+   read for restore, writes, audits, conflicts, onboarding, or stale-index recovery.
 4. Load domain context only when its activation condition applies.
 5. Install or present `skills/*/*/SKILL.md` to the new agent; merge rules semantically and never
    overwrite unrelated local rules.
 6. Discover the new agent's documented persistent-rule and native-memory interfaces. Preview
    `bootstrap-agent` before applying it; never invent a `MEMORY.md` path.
 7. Run a read-only restoration check before making changes. Preserve conflicts for user review.
-8. Pull Obsidian context before work. Before the final reply, write durable deltas to Obsidian
-   first and then to a verified local-memory mirror using the same stable IDs.
+8. Pull Obsidian context before work. Before the final reply, write warranted durable deltas to
+   Obsidian, append the changelog, rebuild and health-check the index, then update a verified
+   local-memory mirror using the same stable IDs.
 9. Report degraded local-memory status honestly and never run Git during routine memory sync.
 """
 
@@ -1035,6 +1546,24 @@ def build_parser():
     bootstrap.add_argument("--confirm-native-memory-roundtrip", action="store_true")
     bootstrap.add_argument("--confirm-acceptance-drill", action="store_true")
     bootstrap.add_argument("--apply", action="store_true")
+
+    build_index = sub.add_parser(
+        "build-index", help="Preview or atomically rebuild the lifecycle memory index"
+    )
+    build_index.add_argument("--vault", required=True)
+    build_index.add_argument("--apply", action="store_true")
+
+    health = sub.add_parser(
+        "memory-health", help="Audit freshness, lifecycle, evidence, and context budget"
+    )
+    health.add_argument("--vault", required=True)
+
+    runtime = sub.add_parser(
+        "runtime-context", help="Load bounded current, hot, and task-relevant memory"
+    )
+    runtime.add_argument("--vault", required=True)
+    runtime.add_argument("--query", required=True)
+    runtime.add_argument("--max-chars", type=int, default=DEFAULT_HOT_BUDGET_CHARS)
     return parser
 
 
@@ -1058,6 +1587,12 @@ def main(argv=None):
                 _parse_mapping(args.skill_target, "--skill-target"),
                 apply=args.apply,
             )
+        elif args.command == "build-index":
+            report = build_memory_index(args.vault, apply=args.apply)
+        elif args.command == "memory-health":
+            report = memory_health(args.vault)
+        elif args.command == "runtime-context":
+            report = runtime_context(args.vault, args.query, max_chars=args.max_chars)
         else:
             report = bootstrap_agent(
                 args.vault,

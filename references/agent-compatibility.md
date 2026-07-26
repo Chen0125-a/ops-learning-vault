@@ -15,8 +15,8 @@ Every target agent must be able to read Markdown and JSON, access the restored v
 
 1. Verify the bundle or package.
 2. Read this `SKILL.md` completely.
-3. Read the six core memory files in order.
-4. Read the portability manifest and only the domain context relevant to the task.
+3. Validate lifecycle health and use bounded selective context for ordinary work.
+4. Use a complete six-file read for onboarding, restore, writes, audits, conflicts, or stale-index recovery; read only the domain context relevant to the task.
 5. Read the portable memory policy and locate the Agent's registry entry.
 6. Apply the authority, privacy, evidence, conflict, and end-of-conversation audit rules.
 7. Report unavailable capabilities instead of improvising them.
@@ -81,5 +81,6 @@ Use a fresh task with no old chat context and ask the target agent to:
 9. complete one no-change conversation without adding entries;
 10. identify its registry status and any degraded layer;
 11. confirm it did not restore credentials, hidden reasoning, or account state.
+12. demonstrate that a review-due or superseded record is withheld from routine context and that source drift makes selective loading fail closed.
 
 Pass only when the answers trace to current files, stable IDs do not duplicate across stores, and no unavailable layer is described as restored.

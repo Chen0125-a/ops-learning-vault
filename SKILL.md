@@ -16,7 +16,7 @@ Reconstruct explicit collaboration continuity from user-owned artifacts and keep
 
 Keep these layers independently replaceable. Installing this Skill alone does not restore absent vault data. Restoring the vault alone does not install Skills or activate agent rules. An agent without a verified native-memory file still receives full continuity from Obsidian, but its status is degraded rather than “dual-memory synchronized.”
 
-Always read [dual-memory-protocol.md](references/dual-memory-protocol.md) before onboarding, reconciling, or writing memory. For architecture and recovery guarantees, read [continuity-architecture.md](references/continuity-architecture.md). For the manifest and registry contract, read [manifest-schema.md](references/manifest-schema.md). When onboarding a new target or working outside Codex, read [agent-compatibility.md](references/agent-compatibility.md).
+Always read [memory-lifecycle.md](references/memory-lifecycle.md) before loading, reviewing, or writing memory, and read [dual-memory-protocol.md](references/dual-memory-protocol.md) before onboarding or reconciling stores. For architecture and recovery guarantees, read [continuity-architecture.md](references/continuity-architecture.md). For the manifest, index, and registry contract, read [manifest-schema.md](references/manifest-schema.md). When onboarding a new target or working outside Codex, read [agent-compatibility.md](references/agent-compatibility.md).
 
 ## Locate the package
 
@@ -32,7 +32,18 @@ Set the package root to the directory containing `README.md`, `CURRENT.md`, and 
 
 ## Load context
 
-Read these files completely and in order:
+Choose a loading mode before reading personal memory.
+
+For an ordinary task, first run:
+
+```text
+python scripts/continuity.py memory-health --vault <vault>
+python scripts/continuity.py runtime-context --vault <vault> --query <current-task> --max-chars 12000
+```
+
+Use the bounded runtime output: current handoff, active fresh hot memory, and query-relevant warm memory. Do not routinely load candidates, review-due entries, superseded entries, or archives. If the index is missing, stale, invalid, or over budget, stop selective loading and use full mode.
+
+Use full mode for migration, restore, onboarding, acceptance tests, conflict resolution, privacy or lifecycle audit, every durable memory write, or any index failure. Read completely and in order:
 
 1. `CURRENT.md`
 2. `USER_PROFILE.md`
@@ -41,7 +52,7 @@ Read these files completely and in order:
 5. `LESSONS.md`
 6. `ENVIRONMENT.md`
 
-Then read `PORTABLE_MEMORY_POLICY.md`, `AGENT_MEMORY_REGISTRY.json`, and `PORTABILITY_MANIFEST.json`. Load additional `context_paths` only when their activation condition matches the task. Read `MEMORY_INBOX.md` while resolving candidate observations or maintaining memory. Read `MEMORY_CHANGELOG.md` when auditing freshness, migration, restoration, or a suspected sync gap.
+Then read `PORTABLE_MEMORY_POLICY.md`, `AGENT_MEMORY_REGISTRY.json`, `PORTABILITY_MANIFEST.json`, and validate `MEMORY_INDEX.json` against its sources. Load additional `context_paths` only when their activation condition matches the task. Read `MEMORY_INBOX.md` while resolving candidate observations or maintaining memory. Read `MEMORY_CHANGELOG.md` when auditing freshness, migration, restoration, or a suspected sync gap.
 
 If the current agent has a registry entry and its native-memory paths are accessible, read only the relevant local entries and reconcile them against Obsidian. Do not bulk-copy a full local memory file or chat history into the vault. If the agent is absent from the registry, run the onboarding workflow before claiming automatic continuity.
 
@@ -78,16 +89,18 @@ Classify durable changes narrowly:
 
 If nothing durable changed, make no memory edit. If something changed:
 
-1. Update the narrowest relevant file before the final reply.
-2. Include date, source/evidence, scope, status, and a stable ID.
-3. Append a compact entry to `MEMORY_CHANGELOG.md` naming changed IDs and files.
-4. Update `reviewed` only on files actually reviewed or changed.
-5. Write domain-only changes to their domain package; promote them to general memory only when they apply across topics.
-6. Verify the Obsidian files are readable.
-7. If the current registry entry names verified readable and writable native-memory files, update them through that agent's documented mechanism with a compact mirror containing the changed stable IDs, short summaries, canonical package location, and sync date.
-8. Re-read the affected native-memory section or use the platform's documented verification method. Never mirror secrets, complete chats, hidden reasoning, or unsupported inferences.
-9. If native-memory sync is unavailable or fails, keep the successful Obsidian update, record/report the degraded status, and do not claim dual-memory success.
-10. Stop. Do not run Git or remote sync as part of routine memory maintenance.
+1. Enter full mode and apply the write gate in `memory-lifecycle.md`.
+2. Update the narrowest relevant file before the final reply.
+3. Include date, source/evidence, scope, status, review date, and a stable ID. An inferred user impression needs two independent evidence points before `active`; otherwise keep it as a candidate.
+4. Append a compact entry to `MEMORY_CHANGELOG.md` naming changed IDs and files.
+5. Update `reviewed` only on files actually reviewed or changed.
+6. Write domain-only changes to their domain package; promote them to general memory only when they apply across topics.
+7. Rebuild `MEMORY_INDEX.json` atomically with `build-index --apply`, then run `memory-health`. Never edit a fingerprint to mask source drift.
+8. Verify the Obsidian files are readable.
+9. If the current registry entry names verified readable and writable native-memory files, update them through that agent's documented mechanism with a compact mirror containing the changed stable IDs, short summaries, canonical package location, and sync date.
+10. Re-read the affected native-memory section or use the platform's documented verification method. Never mirror secrets, complete chats, hidden reasoning, or unsupported inferences.
+11. If native-memory sync is unavailable or fails, keep the successful Obsidian update, record/report the degraded status, and do not claim dual-memory success.
+12. Stop. Do not run Git or remote sync as part of routine memory maintenance.
 
 Always write Obsidian first and the local mirror second. Local memory must not write its own mirrored text back into Obsidian as a new fact; stable IDs and source metadata prevent duplicate loops.
 
@@ -136,7 +149,7 @@ Use read-only verification before export or after restoration:
 python scripts/continuity.py verify --vault <vault> --skill-root <user-skill-root> [--skill-root <another-root>]
 ```
 
-Treat missing core files, `PORTABLE_MEMORY_POLICY.md`, `AGENT_MEMORY_REGISTRY.json`, required context, required Skills, invalid manifest or registry data, symlinks, forbidden filenames, or high-confidence credential patterns as failures. A green audit establishes artifact integrity, not literal identity continuity.
+Also run `memory-health --vault <vault>`. Treat missing core files, a missing/stale lifecycle index, `PORTABLE_MEMORY_POLICY.md`, `AGENT_MEMORY_REGISTRY.json`, required context, required Skills, invalid manifest or registry data, symlinks, forbidden filenames, or high-confidence credential patterns as failures. Review warnings—expired records, overdue candidates, weak impressions, stale current state, or an oversized hot set—before claiming lifecycle health. A green audit establishes artifact integrity, not literal identity continuity.
 
 ## Export a continuity bundle
 
@@ -191,7 +204,7 @@ Never overwrite a different existing file. Stop and report conflicts for semanti
 After file restoration:
 
 1. Install or present this Skill to the target agent.
-2. Read the six core files, dual-memory policy, Agent registry, and relevant domain package.
+2. Run a full canonical read, rebuild and verify the lifecycle index, then load the relevant domain package.
 3. Run the one-time Agent onboarding workflow and record its actual status.
 4. Summarize what was recovered and what remains unavailable.
 5. Complete one small reversible task.
@@ -211,4 +224,4 @@ Never store or export passwords, tokens, cookies, API keys, private keys, authen
 
 ## Completion criteria
 
-Declare routine canonical memory maintenance complete when required Obsidian files are updated and readable. Declare dual-memory maintenance complete only when the verified local mirror also confirms the same changed IDs; otherwise state the exact degraded status. An installed rule block is not proof of automatic loading, and a readable file is not proof that the product consumes it. Declare onboarding complete only when `rules_autoload`, native-memory verification when applicable, and `acceptance_status` have evidence. Declare an export complete only when its manifest and checksums verify. Declare restoration complete only when the memory package, dual-memory policy, Agent registry, required context, portable rules, user-owned Skills, managed-Skill reinstall plan, conflict report, onboarding status, and a fresh-context handoff check all pass. List every unavailable category instead of calling a partial restore complete.
+Declare routine canonical memory maintenance complete when required Obsidian files are updated and readable, the index has been atomically rebuilt, source fingerprints match, and health has no blocking error. Declare dual-memory maintenance complete only when the verified local mirror also confirms the same changed IDs; otherwise state the exact degraded status. An installed rule block is not proof of automatic loading, and a readable file is not proof that the product consumes it. Declare onboarding complete only when `rules_autoload`, native-memory verification when applicable, and `acceptance_status` have evidence. Declare an export complete only when its manifest and checksums verify. Declare restoration complete only when the memory package, lifecycle health, dual-memory policy, Agent registry, required context, portable rules, user-owned Skills, managed-Skill reinstall plan, conflict report, onboarding status, and a fresh-context handoff check all pass. List every unavailable category instead of calling a partial restore complete.

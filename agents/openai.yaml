@@ -1,4 +1,4 @@
 interface:
   display_name: "Portable Dual-Memory Continuity"
-  short_description: "Sync Obsidian memory across agents safely"
-  default_prompt: "Use $obsidian-user-memory to load, reconcile, and synchronize my portable Obsidian memory with this agent."
+  short_description: "Load and govern portable Obsidian memory safely"
+  default_prompt: "Use $obsidian-user-memory to health-check and selectively load my portable Obsidian memory, then synchronize only warranted durable changes."

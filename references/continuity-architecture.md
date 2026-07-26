@@ -26,7 +26,7 @@ Never collapse these labels into a single success claim.
 
 | Layer | Source of truth | Examples | Restore test |
 |---|---|---|---|
-| Semantic memory | Obsidian general memory package | facts, preferences, decisions, lessons | new agent accurately summarizes six core files |
+| Semantic memory | Obsidian Markdown ledgers plus generated lifecycle index | facts, preferences, decisions, lessons | new agent validates fingerprints and retrieves the right bounded context |
 | Active state | Obsidian `CURRENT.md` and domain `CURRENT.md` | priorities, blockers, next step | agent identifies the current handoff without old chat |
 | Behavior | portable rules | privacy, evidence, audit, teaching trigger | agent follows a reversible probe task correctly |
 | Capabilities | Skill sources and managed-source inventory | custom Skills, catalog Skills | required Skill triggers and its validator passes |
@@ -42,6 +42,8 @@ The semantic-memory layer has two implementations with different roles:
 - A documented Agent-native memory is a local mirror/cache for faster product-specific continuity.
 
 This is intentionally asymmetric. Equal peers create last-writer-wins corruption, duplicate facts, and sync loops. Every session pulls canonical context before work. Every durable update writes Obsidian first, records stable IDs and provenance, then mirrors those IDs locally. A missing local store degrades convenience but does not invalidate canonical continuity.
+
+Canonical does not mean “load everything every time.” `MEMORY_INDEX.json` is a disposable routing layer with source hashes, lifecycle state, tiers, review dates, evidence counts, and a hot-context budget. Routine work uses it to load current plus relevant memory. Full canonical reads are reserved for writes, migration, restore, audit, conflict resolution, and stale-index recovery. Markdown remains authoritative; any hash mismatch disables selective loading until the index is rebuilt.
 
 Persistent Agent rules are the automatic lifecycle hook. They tell the Agent to invoke this Skill at context load and before its final reply. The actual local-memory adapter remains product-specific and must be verified rather than guessed.
 
@@ -87,6 +89,8 @@ Treat any of these as an incomplete migration:
 - a local-memory entry overwrites canonical Obsidian data without conflict resolution;
 - a mirrored entry is re-imported under a new ID and creates a sync loop;
 - the target agent cannot distinguish confirmed facts from impressions or candidates;
+- the lifecycle index is missing/stale, an expired entry remains routine authority, or hot memory exceeds its declared budget without disclosure;
+- a one-off inferred impression is promoted without two independent evidence points and a review date;
 - an export contains credential indicators;
 - the restore has not been exercised in a new-context drill.
 

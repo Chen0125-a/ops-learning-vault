@@ -17,7 +17,7 @@ Store `PORTABILITY_MANIFEST.json` in the general memory package. Encode it as UT
 
 | Field | Type | Meaning |
 |---|---|---|
-| `schema_version` | integer | Must be `3` for this Skill version |
+| `schema_version` | integer | `4` for lifecycle-aware packages; `3` remains readable for restore compatibility |
 | `package_id` | string | Stable identifier for this continuity package |
 | `memory_package` | string | General memory directory name |
 | `context_paths` | array | Explicit vault content allowed into a migration bundle |
@@ -28,16 +28,22 @@ Store `PORTABILITY_MANIFEST.json` in the general memory package. Encode it as UT
 
 ## Memory protocol and Agent registry
 
-`memory_protocol` must contain these exact invariants:
+For schema version `4`, `memory_protocol` must contain these exact invariants:
 
 ```json
 {
   "canonical_store": "obsidian",
   "policy": "AI协作-通用记忆包/PORTABLE_MEMORY_POLICY.md",
   "agent_registry": "AI协作-通用记忆包/AGENT_MEMORY_REGISTRY.json",
+  "lifecycle_index": "AI协作-通用记忆包/MEMORY_INDEX.json",
+  "runtime_loading": "selective-index",
   "sync_order": ["pull-before-work", "push-before-final-reply"]
 }
 ```
+
+Schema version `3` retains the four original fields and can still be verified or restored, but it does not claim lifecycle-aware selective loading. Upgrade it before using `build-index`, `memory-health`, or routine selective context as the continuity contract.
+
+`MEMORY_INDEX.json` uses schema version `1`. It is generated from the canonical Markdown ledgers and contains source fingerprints, a hot-context character budget, non-destructive lifecycle policy, and stable-ID entries with title, source, summary, status, tier, scope, activation terms, confirmation date, review date, and evidence count. It is a routing/cache artifact, not a new authority. A fingerprint mismatch blocks selective loading and requires a full read plus atomic rebuild.
 
 `AGENT_MEMORY_REGISTRY.json` uses schema version `1`, declares `canonical_store` as `obsidian`, and stores an `agents` array. Each Agent entry requires:
 
@@ -91,7 +97,7 @@ Do not place credentials, private repository tokens, or authenticated URLs in th
 
 ```json
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "package_id": "portable-agent-continuity",
   "memory_package": "AI协作-通用记忆包",
   "context_paths": [
@@ -121,6 +127,8 @@ Do not place credentials, private repository tokens, or authenticated URLs in th
     "canonical_store": "obsidian",
     "policy": "AI协作-通用记忆包/PORTABLE_MEMORY_POLICY.md",
     "agent_registry": "AI协作-通用记忆包/AGENT_MEMORY_REGISTRY.json",
+    "lifecycle_index": "AI协作-通用记忆包/MEMORY_INDEX.json",
+    "runtime_loading": "selective-index",
     "sync_order": [
       "pull-before-work",
       "push-before-final-reply"

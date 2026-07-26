@@ -31,13 +31,14 @@ A rule file is a behavior hook, not automatically a memory store. A chat transcr
 When durable user context matters, the Agent MUST:
 
 1. discover the canonical package;
-2. read the six core files in required order;
-3. read `PORTABLE_MEMORY_POLICY.md`, `AGENT_MEMORY_REGISTRY.json`, and `PORTABILITY_MANIFEST.json`;
-4. load only relevant domain context;
-5. locate its own registry entry;
-6. read relevant accessible local-memory entries if the entry is `verified`;
-7. reconcile conflicts using the authority order below;
-8. state missing, stale, or degraded layers briefly.
+2. validate `MEMORY_INDEX.json` source fingerprints and lifecycle health;
+3. for ordinary work, load bounded `CURRENT.md`, fresh active hot entries, and task-relevant warm entries;
+4. enter full mode and read the six core files plus policy, registry, manifest, inbox, and relevant changelog when migrating, restoring, onboarding, writing memory, resolving a conflict, auditing, or recovering from an index failure;
+5. load only relevant domain context;
+6. locate its own registry entry;
+7. read relevant accessible local-memory entries if the entry is `verified`;
+8. reconcile conflicts using the authority order below;
+9. state missing, stale, review-due, over-budget, or degraded layers briefly.
 
 The Agent MUST NOT import an entire local memory file or old conversation merely because it exists.
 
@@ -55,13 +56,15 @@ During the task, new observations remain candidates until supported. The Agent M
 
 Before every final reply, the Agent MUST perform a durable-delta audit. When nothing durable changed, it MUST write nothing to either store. When a durable change exists, it MUST:
 
-1. update the narrowest canonical Obsidian file;
-2. attach a stable ID, date, evidence/source, scope, and status;
-3. append one compact `MEMORY_CHANGELOG.md` entry;
-4. verify the canonical files are readable;
-5. update the verified local mirror with the same changed IDs and concise summaries;
-6. verify the local write through the product's documented method;
-7. report any degraded or failed local sync honestly.
+1. enter full mode and pass the lifecycle write gate;
+2. update the narrowest canonical Obsidian file;
+3. attach a stable ID, date, evidence/source, scope, status, and review date;
+4. append one compact `MEMORY_CHANGELOG.md` entry;
+5. atomically rebuild `MEMORY_INDEX.json` and pass the blocking health checks;
+6. verify the canonical files are readable;
+7. update the verified local mirror with the same changed IDs and concise summaries;
+8. verify the local write through the product's documented method;
+9. report any degraded or failed local sync honestly.
 
 Obsidian MUST be written before the local mirror. A failed local write MUST NOT roll back or conceal a valid canonical update.
 
@@ -90,6 +93,8 @@ The Agent MUST NOT use wall-clock recency alone as authority. If two validated e
 The Agent MUST NOT store passwords, tokens, cookies, API keys, private keys, authentication artifacts, browser/account databases, complete chat transcripts, hidden reasoning, irrelevant private material, or sensitive terminal dumps. It MUST NOT convert a one-off tone, emotion, or temporary action into a permanent personality label.
 
 Domain-only material stays in its domain package. It is promoted to general memory only when it is useful across themes. Platform-specific tool quirks MAY stay local unless another Agent would benefit from them.
+
+Apply the lifecycle rules in `memory-lifecycle.md`: a one-off inferred impression remains a candidate; active impressions require at least two independent evidence points and a review date. A passed review date removes an entry from routine authority until revalidated. Superseded and archived records remain inspectable but are not routinely loaded. Expiry never triggers automatic deletion.
 
 ## Status model
 
