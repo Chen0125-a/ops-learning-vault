@@ -91,6 +91,87 @@ def update_manifest(vault: Path, transform) -> None:
     write(path, json.dumps(data, ensure_ascii=False, indent=2))
 
 
+def enable_lifecycle_v4(vault: Path) -> None:
+    def transform(data):
+        data["schema_version"] = 4
+        data["memory_protocol"].update(
+            {
+                "lifecycle_index": "AI协作-通用记忆包/MEMORY_INDEX.json",
+                "runtime_loading": "selective-index",
+            }
+        )
+
+    update_manifest(vault, transform)
+
+
+def seed_lifecycle_memory(vault: Path) -> Path:
+    package = vault / "AI协作-通用记忆包"
+    write(
+        package / "CURRENT.md",
+        "---\nreviewed: 2026-07-27\n---\n# Current\n\n正在维护可迁移记忆。\n",
+    )
+    write(
+        package / "USER_PROFILE.md",
+        """---
+reviewed: 2026-07-27
+---
+# User profile
+
+## UP-001：偏好直接交付
+
+- 状态：active
+- 内容：优先直接完成可逆任务。
+- 来源证据：用户在多个任务中重复确认。
+
+## UP-002：已废弃旧偏好
+
+- 状态：superseded
+- 内容：旧结论，不应再加载。
+""",
+    )
+    write(
+        package / "COLLABORATION_MEMORY.md",
+        """---
+reviewed: 2026-07-27
+---
+# Collaboration memory
+
+## UI-001：偏好简洁表达
+
+- 状态：active
+- 观察：用户通常偏好结论先行。
+- 来源证据：两次独立任务中的明确反馈。
+
+## UI-002：一次性印象
+
+- 状态：candidate
+- 观察：可能喜欢非常长的回答。
+- 来源证据：一次临时请求。
+""",
+    )
+    write(
+        package / "LESSONS.md",
+        """---
+reviewed: 2026-07-27
+---
+# Lessons
+
+## L-001：迁移后先验证
+
+- 状态：active
+- 正确结论：恢复后应先做只读验收。
+- 适用范围：迁移、恢复、换机
+
+## L-002：无关的数据库经验
+
+- 状态：active
+- 正确结论：数据库迁移前先备份。
+- 适用范围：数据库
+""",
+    )
+    return package
+
+
 class ContinuityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -611,6 +692,146 @@ class ContinuityTests(unittest.TestCase):
             self.assertEqual(bootstrap_code, 0)
             self.assertEqual(invalid_code, 2)
             self.assertIn("requires LABEL=PATH", stderr.getvalue())
+
+    def test_build_memory_index_is_dry_run_then_atomic_apply(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = create_vault(Path(tmp))
+            package = seed_lifecycle_memory(vault)
+            enable_lifecycle_v4(vault)
+
+            preview = self.mod.build_memory_index(vault, apply=False)
+
+            self.assertTrue(preview["ok"])
+            self.assertFalse(preview["apply"])
+            self.assertFalse((package / "MEMORY_INDEX.json").exists())
+            self.assertGreaterEqual(preview["entry_count"], 6)
+
+            applied = self.mod.build_memory_index(vault, apply=True)
+            index = json.loads((package / "MEMORY_INDEX.json").read_text(encoding="utf-8"))
+            by_id = {entry["id"]: entry for entry in index["entries"]}
+
+            self.assertTrue(applied["ok"])
+            self.assertEqual(index["schema_version"], 1)
+            self.assertEqual(by_id["UP-001"]["tier"], "hot")
+            self.assertEqual(by_id["UI-001"]["tier"], "warm")
+            self.assertEqual(by_id["UP-002"]["status"], "superseded")
+            self.assertEqual(by_id["UP-002"]["tier"], "archive")
+            self.assertIn("CURRENT.md", index["source_fingerprints"])
+
+    def test_index_fingerprint_detects_source_drift_and_verify_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = create_vault(Path(tmp))
+            package = seed_lifecycle_memory(vault)
+            enable_lifecycle_v4(vault)
+            self.mod.build_memory_index(vault, apply=True)
+            with (package / "LESSONS.md").open("a", encoding="utf-8") as stream:
+                stream.write("\n新内容使索引过期。\n")
+
+            health = self.mod.memory_health(vault)
+            report = self.mod.verify_package(vault)
+
+            self.assertFalse(health["ok"])
+            self.assertIn("LESSONS.md", health["stale_sources"])
+            self.assertFalse(report["ok"])
+            self.assertTrue(any("memory index" in error.lower() for error in report["errors"]))
+            with self.assertRaises(self.mod.ValidationError):
+                self.mod.runtime_context(vault, query="迁移恢复")
+
+    def test_runtime_context_is_selective_and_excludes_due_or_superseded_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = create_vault(Path(tmp))
+            package = seed_lifecycle_memory(vault)
+            enable_lifecycle_v4(vault)
+            self.mod.build_memory_index(vault, apply=True)
+            index_path = package / "MEMORY_INDEX.json"
+            index = json.loads(index_path.read_text(encoding="utf-8"))
+            for entry in index["entries"]:
+                if entry["id"] == "UI-001":
+                    entry["review_after"] = "2026-07-26"
+            write(index_path, json.dumps(index, ensure_ascii=False, indent=2) + "\n")
+
+            result = self.mod.runtime_context(
+                vault,
+                query="迁移恢复",
+                max_chars=5000,
+                today="2026-07-27",
+            )
+
+            self.assertTrue(result["ok"])
+            self.assertIn("UP-001", result["loaded_ids"])
+            self.assertIn("L-001", result["loaded_ids"])
+            self.assertNotIn("L-002", result["loaded_ids"])
+            self.assertNotIn("UP-002", result["loaded_ids"])
+            self.assertNotIn("UI-001", result["loaded_ids"])
+            self.assertIn("UI-001", result["review_due_ids"])
+            self.assertLessEqual(result["context_chars"], 5000)
+
+    def test_memory_health_flags_unsafe_impression_candidate_and_hot_budget(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = create_vault(Path(tmp))
+            package = seed_lifecycle_memory(vault)
+            enable_lifecycle_v4(vault)
+            self.mod.build_memory_index(vault, apply=True)
+            index_path = package / "MEMORY_INDEX.json"
+            index = json.loads(index_path.read_text(encoding="utf-8"))
+            index["hot_budget_chars"] = 10
+            for entry in index["entries"]:
+                if entry["id"] == "UI-001":
+                    entry["evidence_count"] = 1
+                    entry["review_after"] = None
+                if entry["id"] == "UI-002":
+                    entry["last_confirmed"] = "2026-01-01"
+                    entry["review_after"] = "2026-01-31"
+            write(index_path, json.dumps(index, ensure_ascii=False, indent=2) + "\n")
+
+            health = self.mod.memory_health(vault, today="2026-07-27")
+
+            self.assertTrue(health["index_fresh"])
+            self.assertTrue(health["oversized_hot_context"])
+            self.assertIn("UI-001", health["impression_issues"])
+            self.assertIn("UI-002", health["candidate_overdue"])
+            self.assertGreaterEqual(len(health["warnings"]), 3)
+
+    def test_v4_manifest_requires_lifecycle_index_contract(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = create_vault(Path(tmp))
+            update_manifest(vault, lambda data: data.update({"schema_version": 4}))
+
+            report = self.mod.verify_package(vault)
+
+            self.assertFalse(report["ok"])
+            self.assertTrue(any("lifecycle_index" in error for error in report["errors"]))
+
+    def test_cli_entrypoints_cover_index_health_and_runtime_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = create_vault(Path(tmp))
+            seed_lifecycle_memory(vault)
+            enable_lifecycle_v4(vault)
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                build_code = self.mod.main(
+                    ["build-index", "--vault", str(vault), "--apply"]
+                )
+                health_code = self.mod.main(["memory-health", "--vault", str(vault)])
+                context_code = self.mod.main(
+                    [
+                        "runtime-context",
+                        "--vault",
+                        str(vault),
+                        "--query",
+                        "迁移恢复",
+                        "--max-chars",
+                        "5000",
+                    ]
+                )
+
+            self.assertEqual(build_code, 0)
+            self.assertEqual(health_code, 0)
+            self.assertEqual(context_code, 0)
+            self.assertIn('"loaded_ids"', stdout.getvalue())
+            self.assertEqual(stderr.getvalue(), "")
 
 
 if __name__ == "__main__":
