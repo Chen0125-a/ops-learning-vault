@@ -183,6 +183,10 @@ class ContinuityTests(unittest.TestCase):
             found = self.mod.discover_memory_package(explicit=vault)
             self.assertEqual(found, vault / "AI协作-通用记忆包")
 
+    def test_portable_rule_requires_vault_discovery_before_index_loading(self):
+        self.assertIn("discover the vault", self.mod.PORTABLE_RULE_BLOCK)
+        self.assertIn("verify `MEMORY_INDEX.json` fingerprints", self.mod.PORTABLE_RULE_BLOCK)
+
     def test_verify_package_and_required_skills(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
