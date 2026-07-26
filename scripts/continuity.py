@@ -580,13 +580,19 @@ def _parse_memory_entries(package):
             body = text[match.end():end]
             entry_id = match.group(1)
             status = _normalize_status(_field_value(body, ("状态", "status")))
-            last_confirmed = _field_value(
+            source_fields = set()
+            raw_last_confirmed = _field_value(
                 body, ("最后确认", "确认日期", "日期", "last_confirmed")
             )
+            if _date_or_none(raw_last_confirmed):
+                source_fields.add("last_confirmed")
             last_confirmed = (
-                last_confirmed if _date_or_none(last_confirmed) else reviewed
+                raw_last_confirmed if _date_or_none(raw_last_confirmed) else reviewed
             )
-            review_after = _field_value(body, ("复核日期", "review_after"))
+            raw_review_after = _field_value(body, ("复核日期", "review_after"))
+            if _date_or_none(raw_review_after):
+                source_fields.add("review_after")
+            review_after = raw_review_after
             if not _date_or_none(review_after):
                 days = _review_days(entry_id, status)
                 confirmed_date = _date_or_none(last_confirmed)
@@ -595,7 +601,13 @@ def _parse_memory_entries(package):
                     if days is not None and confirmed_date
                     else None
                 )
-            scope = _split_scope(_field_value(body, ("适用范围", "范围", "scope")))
+            raw_scope = _field_value(body, ("适用范围", "范围", "scope"))
+            if raw_scope:
+                source_fields.add("scope")
+            scope = _split_scope(raw_scope)
+            raw_evidence_count = _field_value(body, ("证据数", "evidence_count"))
+            if raw_evidence_count and raw_evidence_count.isdigit():
+                source_fields.add("evidence_count")
             entries.append(
                 {
                     "id": entry_id,
@@ -609,6 +621,7 @@ def _parse_memory_entries(package):
                     "review_after": review_after,
                     "evidence_count": _evidence_count(body),
                     "summary": _entry_summary(body),
+                    "_source_fields": sorted(source_fields),
                 }
             )
     return entries
@@ -663,8 +676,9 @@ def build_memory_index(vault_or_package, apply=False, today=None):
     entries = _parse_memory_entries(package)
     for entry in entries:
         old = previous.get(entry["id"], {})
+        source_fields = set(entry.pop("_source_fields", []))
         for field in preserved_fields:
-            if field in old:
+            if field in old and field not in source_fields:
                 entry[field] = old[field]
         if entry["status"] in {"superseded", "archived"}:
             entry["tier"] = "archive"
