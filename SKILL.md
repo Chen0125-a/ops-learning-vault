@@ -1,24 +1,38 @@
 ---
 name: obsidian-user-memory
-description: Load, maintain, audit, migrate, and verify the user's portable collaboration memory stored in an Obsidian vault. Use when a new Codex account or device must restore context; when the user asks Codex to remember, update, correct, export, back up, or sync durable facts, preferences, impressions, decisions, lessons, environment facts, or agreed conclusions; and before the final reply of a conversation that produced such long-term changes. Keep routine memory writes local to Obsidian and perform Git operations only when the user explicitly requests them.
+description: Preserve, synchronize, audit, export, restore, and verify portable user collaboration continuity through an Obsidian canonical ledger plus each agent's documented local-memory mechanism. Use when switching among Codex or other AI agents; when a new account, computer, or agent must inherit durable facts, preferences, evidence-based collaboration impressions, decisions, lessons, active handoff, environment facts, domain memory packages, portable rules, and user-owned Skills; when onboarding an agent's persistent rule or memory files; when the user asks to remember, correct, migrate, back up, restore, or test continuity; and before the final reply of a conversation that produced durable changes. Keep Obsidian authoritative, treat agent-local memory as a mirror/cache, exclude credentials and platform internals, default restoration and onboarding to read-only/dry-run, never invent unsupported native memory, and perform Git or remote sync only when explicitly requested.
 ---
 
-# Obsidian User Memory
+# Obsidian User Memory and Agent Continuity
 
-Treat the Obsidian package as an external, user-owned fact source. Do not claim to restore model internals, hidden reasoning, login state, or unrecorded chat history.
+Reconstruct explicit collaboration continuity from user-owned artifacts and keep it synchronized across agents. Never claim to restore the exact model instance, hidden reasoning, unrecorded chats, inaccessible platform-side memory, authentication, or stochastic behavior. Restore the documented working relationship: facts, preferences, decisions, verified methods, active state, rules, Skills, and evidence history.
+
+## Use the four-layer model
+
+1. **Obsidian canonical layer**: Treat the vault as the cross-agent source of truth for personal memory, domain packages, the Agent registry, and the portability manifest.
+2. **Agent-local mirror layer**: Use only a documented, accessible native-memory mechanism. Reconcile it against Obsidian at task start and mirror validated deltas after Obsidian is updated. It never outranks the canonical ledger.
+3. **Behavior layer**: Install the portable memory policy into the target's automatically loaded persistent rules by semantic merge; never overwrite unrelated content.
+4. **Capability layer**: Preserve user-owned Skill source; record managed Skills by origin/version and reinstall them instead of copying caches or platform internals.
+
+Keep these layers independently replaceable. Installing this Skill alone does not restore absent vault data. Restoring the vault alone does not install Skills or activate agent rules. An agent without a verified native-memory file still receives full continuity from Obsidian, but its status is degraded rather than “dual-memory synchronized.”
+
+Always read [dual-memory-protocol.md](references/dual-memory-protocol.md) before onboarding, reconciling, or writing memory. For architecture and recovery guarantees, read [continuity-architecture.md](references/continuity-architecture.md). For the manifest and registry contract, read [manifest-schema.md](references/manifest-schema.md). When onboarding a new target or working outside Codex, read [agent-compatibility.md](references/agent-compatibility.md).
 
 ## Locate the package
 
-1. Use a path explicitly supplied by the user.
-2. Otherwise search the current workspace and its parents for `AI协作-通用记忆包/README.md`.
-3. On this Windows setup, try `D:\笔记\AI协作-通用记忆包\README.md`.
-4. If still missing, run `scripts/find_memory_root.ps1` or ask for the vault path. Do not create a second package until existing locations have been checked.
+Use an explicit path first. Otherwise run:
 
-Set the package root to the directory containing `README.md`. Treat paths stored in memory as historical until a current read-only check confirms them.
+```text
+python scripts/continuity.py discover
+```
+
+Discovery checks `OBSIDIAN_MEMORY_VAULT`, the current directory and parents, common Obsidian locations, and the known Windows location. Do not create a second memory package until the existing vault has been checked.
+
+Set the package root to the directory containing `README.md`, `CURRENT.md`, and `COLLABORATION_MEMORY.md`. Treat stored paths as historical until a current read-only check confirms them.
 
 ## Load context
 
-Read these files completely in order:
+Read these files completely and in order:
 
 1. `CURRENT.md`
 2. `USER_PROFILE.md`
@@ -27,64 +41,174 @@ Read these files completely in order:
 5. `LESSONS.md`
 6. `ENVIRONMENT.md`
 
-Read `MEMORY_INBOX.md` only when resolving candidate observations or maintaining memory. Read `MEMORY_CHANGELOG.md` when checking freshness or auditing a migration.
+Then read `PORTABLE_MEMORY_POLICY.md`, `AGENT_MEMORY_REGISTRY.json`, and `PORTABILITY_MANIFEST.json`. Load additional `context_paths` only when their activation condition matches the task. Read `MEMORY_INBOX.md` while resolving candidate observations or maintaining memory. Read `MEMORY_CHANGELOG.md` when auditing freshness, migration, restoration, or a suspected sync gap.
 
-If the task concerns the three-month operations-internship course, additionally load the teacher package, learning profile, plan, daily questions, and due mistake reviews referenced by the vault `AGENTS.md`. Do not copy course-only details into the general package.
+If the current agent has a registry entry and its native-memory paths are accessible, read only the relevant local entries and reconcile them against Obsidian. Do not bulk-copy a full local memory file or chat history into the vault. If the agent is absent from the registry, run the onboarding workflow before claiming automatic continuity.
 
-After loading, briefly confirm the package path and last review date. Summarize only the context relevant to the current task; do not dump the full profile unless requested.
+Briefly report the package path, last review date, relevant active context, and any missing or stale layer. Do not dump the full profile unless asked.
 
-## Resolve conflicts
+## Resolve evidence and conflicts
 
 - Prefer current primary evidence and explicit user corrections over stored memory.
-- Distinguish confirmed facts from evidence-based impressions and unverified inbox items.
-- Never silently rewrite history. Mark replaced entries `已废弃`, name the replacement ID, and explain the evidence.
-- Ask only if a conflict would materially change the requested outcome and cannot be resolved from local evidence.
+- Distinguish confirmed facts, evidence-based impressions, active handoff, and unverified inbox observations.
+- Never silently rewrite history. Mark replaced entries `已废弃`, name the replacement ID, and cite the evidence.
+- Treat another AI's assertion as unverified unless the user confirmed it or reproducible evidence supports it.
+- Ask only when an unresolved conflict materially changes the requested outcome.
+
+Use this authority order for every cross-store conflict:
+
+1. current primary evidence or explicit user correction;
+2. validated Obsidian entry;
+3. agent-local memory;
+4. unverified inbox candidate or another agent's unsupported assertion.
+
+Quarantine unresolved conflicts in `MEMORY_INBOX.md`; do not create a last-writer-wins loop.
 
 ## Audit before the final reply
 
-Decide whether the conversation changed any durable information:
+Classify durable changes narrowly:
 
 - confirmed user fact or stable preference → `USER_PROFILE.md`
-- evidence-based, reusable collaboration method → `COLLABORATION_MEMORY.md`
+- reusable collaboration method → `COLLABORATION_MEMORY.md`
 - explicit long-term choice or boundary → `DECISIONS.md`
-- reusable correction or agreed correct conclusion → `LESSONS.md`
+- reusable correction or agreed conclusion → `LESSONS.md`
 - durable device, path, tool, or repository fact → `ENVIRONMENT.md`
 - active priority, handoff, blocker, or next step → `CURRENT.md`
 - plausible but unconfirmed observation → `MEMORY_INBOX.md`
 
-If nothing durable changed, make no file edit. If something changed:
+If nothing durable changed, make no memory edit. If something changed:
 
-1. Update the narrowest relevant file before sending the final reply.
+1. Update the narrowest relevant file before the final reply.
 2. Include date, source/evidence, scope, status, and a stable ID.
-3. Append one compact entry to `MEMORY_CHANGELOG.md` naming changed IDs and files.
+3. Append a compact entry to `MEMORY_CHANGELOG.md` naming changed IDs and files.
 4. Update `reviewed` only on files actually reviewed or changed.
-5. For teaching-only changes, update the teacher package instead; update both only when a conclusion truly applies across topics.
-6. Stop after the Obsidian files are verified. Do not run `git add`, commit, push, or any remote sync as part of a routine end-of-conversation audit.
+5. Write domain-only changes to their domain package; promote them to general memory only when they apply across topics.
+6. Verify the Obsidian files are readable.
+7. If the current registry entry names verified readable and writable native-memory files, update them through that agent's documented mechanism with a compact mirror containing the changed stable IDs, short summaries, canonical package location, and sync date.
+8. Re-read the affected native-memory section or use the platform's documented verification method. Never mirror secrets, complete chats, hidden reasoning, or unsupported inferences.
+9. If native-memory sync is unavailable or fails, keep the successful Obsidian update, record/report the degraded status, and do not claim dual-memory success.
+10. Stop. Do not run Git or remote sync as part of routine memory maintenance.
 
-## Privacy and quality gate
+Always write Obsidian first and the local mirror second. Local memory must not write its own mirrored text back into Obsidian as a new fact; stable IDs and source metadata prevent duplicate loops.
 
-Never store passwords, tokens, cookies, API keys, private keys, authentication files, browser data, full chats, unrelated personal data, sensitive terminal dumps, or hidden chain-of-thought. Do not infer personality, motive, health, finances, relationships, or ability from a single interaction. Store a collaboration impression only when it affects future work, has concrete evidence, is labeled as revisable, and is not a sensitive inference.
+## Onboard this agent once
 
-Do not promote a statement merely because an earlier AI wrote it. Require user confirmation, repeat evidence, or a reproducible result.
+On first use in each Agent product or installation:
 
-## Install or migrate
+1. Identify, from current documentation or direct read-only evidence, the user-level rules file that the Agent automatically loads. Do not guess a path.
+2. Identify any documented, user-readable and user-writable native-memory file or API. A workspace note, chat transcript, cache, session database, or opaque platform memory is not automatically a valid native-memory store.
+3. Choose a stable `agent_id` for that product and memory scope. Reuse it on another computer only when the same portable rule and memory contract applies.
+4. Preview the semantic rule merge:
 
-1. Distribute this Skill independently from the user's memory data. The GitHub copy contains only `SKILL.md`, `agents/`, and `scripts/`; it must not bundle profile, decisions, changelog, teaching records, or other vault content.
-2. Transfer or sync the Obsidian vault through the user's chosen storage method. GitHub installation of the Skill does not restore the memory data by itself.
-3. Install the Skill in the new machine's user Skill directory, normally `%USERPROFILE%\.codex\skills\obsidian-user-memory\`.
-4. Merge the portable memory rule into the new user-level `AGENTS.md`; preserve unrelated existing rules.
-5. Run `scripts/verify_memory_package.ps1 -VaultPath <vault>` and fix every required-file failure.
-6. Invoke `$obsidian-user-memory`, supply the vault path when auto-discovery cannot find it, and perform a read-only context check.
+```text
+python scripts/continuity.py bootstrap-agent \
+  --vault <vault> \
+  --agent-id <stable-agent-id> \
+  --product <product-name> \
+  --rules-file <documented-auto-loaded-rules-file> \
+  [--native-memory <verified-readable-writable-memory-file>] \
+  [--native-memory-adapter <non-secret-adapter-id>]
+```
 
-## Optional Git sync
+5. If the preview reports no conflict, repeat with `--apply`. The command preserves unrelated rules, installs one marked policy block, and records pending verification in `AGENT_MEMORY_REGISTRY.json` idempotently.
+6. If a marked policy block differs, stop for semantic review. Never replace it blindly.
+7. Open a fresh task and prove that the rules load automatically. For a file or API memory adapter, complete a real create/read/update round trip through the product's documented mechanism.
+8. Re-run `bootstrap-agent --apply` with `--confirm-rules-autoload` and, only when that native-memory round trip passed, `--confirm-native-memory-roundtrip`.
+9. Complete the full drill in [agent-compatibility.md](references/agent-compatibility.md), including one warranted memory update and one no-change conversation; then re-run with `--confirm-acceptance-drill` plus the already proven confirmation flags.
 
-Perform Git operations only after an explicit user request for a Skill release or a separately approved backup:
+Use either file paths or an API adapter, never both. A path being present and writable is only a precondition; it does not prove that the product consumes it. `--confirm-native-memory-roundtrip`, `--confirm-rules-autoload`, and `--confirm-acceptance-drill` are evidence declarations made after the corresponding real tests, never substitutes for testing. If native memory is proprietary, inaccessible, undocumented, or absent, omit both native-memory options; use Obsidian as the working memory and report `degraded-no-native-memory-file`.
 
-- For a Skill release, stage and publish only this Skill's source files. Do not stage the Obsidian memory files.
-- For a memory backup, treat it as a separate privacy-reviewed operation with an exact destination and scope; never infer it from a routine memory update.
-- Inspect the exact diff, check for credentials or bundled personal data, and avoid unreviewed blanket staging.
-- If authentication fails, retain local work and report the authorization step without exposing credentials.
+## Classify Skills before migration
+
+Inventory every configured Skill and assign exactly one class:
+
+- **User-owned portable**: authored or customized for the user. Export the complete Skill folder, including `SKILL.md`, `agents/`, scripts, references, assets, and tests.
+- **Managed/reinstallable**: installed from a catalog, plugin, package, or known repository. Record the exact source and version/ref; prefer reinstalling from that source. Export source only when the source cannot be recovered.
+- **Platform/system**: bundled with the agent runtime, plugin cache, authentication, session store, or generated cache. Never copy it as user continuity.
+
+Require `SKILL.md` for every exported Skill. Exclude `.system`, plugin caches, `.git`, `.obsidian`, dependency caches, virtual environments, and generated caches. If provenance is uncertain, mark it unresolved in the audit instead of guessing.
+
+## Run a readiness audit
+
+Use read-only verification before export or after restoration:
+
+```text
+python scripts/continuity.py verify --vault <vault> --skill-root <user-skill-root> [--skill-root <another-root>]
+```
+
+Treat missing core files, `PORTABLE_MEMORY_POLICY.md`, `AGENT_MEMORY_REGISTRY.json`, required context, required Skills, invalid manifest or registry data, symlinks, forbidden filenames, or high-confidence credential patterns as failures. A green audit establishes artifact integrity, not literal identity continuity.
+
+## Export a continuity bundle
+
+Export only after the user asks for migration or backup and an exact destination is known:
+
+```text
+python scripts/continuity.py export \
+  --vault <vault> \
+  --output <new-empty-destination> \
+  --skill-root codex-user=<user-skill-root> \
+  [--skill-root another-agent=<another-user-skill-root>]
+```
+
+The export must:
+
+1. Read the allowlisted `context_paths` from `PORTABILITY_MANIFEST.json`.
+2. Include all valid top-level Skills from explicitly supplied user Skill roots.
+3. Fail closed on credentials, secret-bearing filenames, private-key markers, symlinks, missing required assets, or an existing output path.
+4. Avoid absolute source paths in the bundle manifest.
+5. Create `bundle-manifest.json`, `HANDOFF.md`, and `checksums.sha256`.
+6. Leave the source vault and Skill roots unchanged.
+
+Do not publish or sync the bundle merely because it exists. Storage, encryption, and remote destination are separate user decisions.
+
+Treat SHA-256 as corruption and post-creation change detection, not proof of publisher identity. Authenticity requires a trusted transfer channel or a separately verified signature.
+
+## Restore safely
+
+Verify first:
+
+```text
+python scripts/continuity.py verify-bundle --bundle <bundle>
+```
+
+Preview restoration without writes:
+
+```text
+python scripts/continuity.py restore \
+  --bundle <bundle> \
+  --target-vault <target-vault> \
+  --skill-target codex-user=<target-skill-root>
+```
+
+Apply only after the preview is clean:
+
+```text
+python scripts/continuity.py restore <same-arguments> --apply
+```
+
+Never overwrite a different existing file. Stop and report conflicts for semantic merge or explicit user choice. Merge portable agent rules into the target's user-level rules; do not replace the entire target rule file. Reinstall managed Skills from their recorded sources, then verify their versions and triggers.
+
+After file restoration:
+
+1. Install or present this Skill to the target agent.
+2. Read the six core files, dual-memory policy, Agent registry, and relevant domain package.
+3. Run the one-time Agent onboarding workflow and record its actual status.
+4. Summarize what was recovered and what remains unavailable.
+5. Complete one small reversible task.
+6. Trigger a durable-memory update and verify Obsidian-first/local-second ordering.
+7. Complete a no-change conversation and verify neither store gains fabricated entries.
+8. Confirm routine memory maintenance did not run Git or remote sync.
+
+## Work with non-Codex agents
+
+If the target supports Agent Skills, install the folder in its documented user Skill location. Otherwise give the agent `SKILL.md`, `HANDOFF.md`, `PORTABLE_MEMORY_POLICY.md`, and the restored vault path as an explicit operating protocol. Adapt only the installation, rule-file location, and documented native-memory adapter; do not weaken authority, evidence, privacy, conflict, or audit rules.
+
+Do not pretend unsupported tools exist. Produce a manual merge plan when the target cannot execute the bundled Python script or cannot persist files.
+
+## Privacy gate
+
+Never store or export passwords, tokens, cookies, API keys, private keys, authentication files, browser data, account databases, full chats, unrelated personal data, sensitive terminal dumps, or hidden chain-of-thought. Do not infer personality, motives, health, finances, relationships, or ability from a single interaction. Preserve an impression only when it affects future work, has concrete evidence, is revisable, and is not a sensitive inference.
 
 ## Completion criteria
 
-For a routine conversation, finish when the necessary Obsidian files are updated and readable; Git status is irrelevant. Declare restoration complete only when the package is found, all required files are readable, this Skill validates, and the user-level installation is present. For an explicitly requested Skill release or backup, also report the Git result and any unverified external state.
+Declare routine canonical memory maintenance complete when required Obsidian files are updated and readable. Declare dual-memory maintenance complete only when the verified local mirror also confirms the same changed IDs; otherwise state the exact degraded status. An installed rule block is not proof of automatic loading, and a readable file is not proof that the product consumes it. Declare onboarding complete only when `rules_autoload`, native-memory verification when applicable, and `acceptance_status` have evidence. Declare an export complete only when its manifest and checksums verify. Declare restoration complete only when the memory package, dual-memory policy, Agent registry, required context, portable rules, user-owned Skills, managed-Skill reinstall plan, conflict report, onboarding status, and a fresh-context handoff check all pass. List every unavailable category instead of calling a partial restore complete.

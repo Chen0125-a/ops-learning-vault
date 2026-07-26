@@ -1,4 +1,4 @@
 interface:
-  display_name: "Obsidian User Memory"
-  short_description: "Restore and maintain portable Obsidian memory"
-  default_prompt: "Use $obsidian-user-memory to load and maintain my portable Obsidian collaboration memory."
+  display_name: "Portable Dual-Memory Continuity"
+  short_description: "Sync Obsidian memory across agents safely"
+  default_prompt: "Use $obsidian-user-memory to load, reconcile, and synchronize my portable Obsidian memory with this agent."
